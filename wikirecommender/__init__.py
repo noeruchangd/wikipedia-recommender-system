@@ -1,7 +1,6 @@
 """
 Wikipedia Recommender System
 """
-
 from .recommender import WikipediaRecommender
 from .utils import download_nltk_resources
 

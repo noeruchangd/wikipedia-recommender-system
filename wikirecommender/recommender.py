@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
+import random
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm.auto import tqdm
 from typing import List, Union, Tuple
 
-from wikirecommender.scraping import wikipedia_scrapper, wikipedia_scrapper_single_page
+from wikirecommender.scraping import wikipedia_scrapper, wikipedia_scrapper_single_page, get_category_members
 from wikirecommender.processing import stemmer
 
 class WikipediaRecommender:
@@ -16,14 +17,17 @@ class WikipediaRecommender:
         self.dataset = None
         self.vectorizer = None
 
-    def load_articles(self, page_count: int = 20, start_link="https://en.wikipedia.org/wiki/Wikipedia:Popular_pages", verbose: bool = True) -> None:
+    def load_articles(self, page_count, verbose: bool = True) -> None:
         """Fetch and process articles to create a dataset with TF-IDF representation."""
-        df = wikipedia_scrapper(start_link, page_count, verbose=verbose)
+        raw_article_list = get_category_members()
+        article_list = random.sample(raw_article_list, page_count)
+        print(len(article_list))
+        df = wikipedia_scrapper(article_list, page_count, verbose=verbose)
         if verbose:
             tqdm.pandas(desc="Processing articles")
-            df['stemmed_words'] = df['text'].progress_apply(stemmer)
+            df['stemmed_words'] = df['raw_text'].progress_apply(stemmer)
         else:
-            df['stemmed_words'] = df['text'].apply(stemmer)
+            df['stemmed_words'] = df['raw_text'].apply(stemmer)
         df['processed_text'] = df['stemmed_words'].apply(lambda words: " ".join(words))
         
         if verbose:
@@ -31,8 +35,8 @@ class WikipediaRecommender:
         self.vectorizer = TfidfVectorizer()
         tfidf_matrix = self.vectorizer.fit_transform(df['processed_text'])
         tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=self.vectorizer.get_feature_names_out())
-        self.dataset = pd.concat([df[['wikipedia_url']], tfidf_df], axis=1)
-    
+        self.dataset = pd.concat([df[['wikipedia_url']], df[['raw_text']], tfidf_df], axis=1)
+
     def _get_similarities(self, url: str) -> Tuple[np.ndarray, str]:
         """Compare a new article to the dataset using cosine similarity."""
         if self.dataset is None or self.vectorizer is None:
@@ -86,7 +90,7 @@ class WikipediaRecommender:
         
         return result_df
     
-    def save_to_file(self, filename: str) -> None:
+    def save_to_file(self, filename: str, text_only: bool = False) -> None:
         """Save the current instance to a CSV file."""
         # Ensure the filename has the correct extension
         if not filename.lower().endswith('.csv'):
@@ -96,16 +100,21 @@ class WikipediaRecommender:
         idf_values = self.vectorizer.idf_
 
         # Convert to DataFrame
-        df = pd.DataFrame(
-            [
-                (term, idf_values[index])
-                for term, index in sorted(vocabulary.items(), key=lambda x: x[1])
-            ],
-            columns=['term', 'idf']
-        )
-        df.set_index('term', inplace=True)
-        df = df.transpose()
-        df = pd.concat([df, self.dataset], axis=0)
+
+        if text_only:
+            df = self.dataset[['wikipedia_url', 'raw_text']]
+        else:
+            df = pd.DataFrame(
+                [
+                    (term, idf_values[index])
+                    for term, index in sorted(vocabulary.items(), key=lambda x: x[1])
+                ],
+                columns=['term', 'idf']
+            )
+            df.set_index('term', inplace=True)
+            df = df.transpose()
+            self.dataset = self.dataset.drop(columns='raw_text')
+            df = pd.concat([df, self.dataset], axis=0)
 
         df.set_index('wikipedia_url', inplace=True)
             
