@@ -54,6 +54,7 @@ def wikipedia_scrapper(article_list: list, page_count: int = 20, *, verbose: boo
     with tqdm(total=page_count, desc="Scraping articles", disable=(not verbose)) as pbar:
         while len(result) < page_count:
             current_link = 'https://en.wikipedia.org/wiki/' + queue.pop()
+            print(current_link)
             if current_link in visited:
                 continue
 
